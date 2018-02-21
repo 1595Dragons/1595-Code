@@ -78,6 +78,15 @@ private:
 		prefs->GetDouble("kGI", kGI);
 		prefs->GetDouble("kGD", kGD);
 		prefs->GetDouble("kGIZ", kGIZ);
+		std::string gameData;
+		gameData = frc::DriverStation::GetInstance().GetGameSpecificMessage();
+		if (gameData.length() > 0) {
+			if (gameData[0] == 'L') {
+				// Left code for the switch goes here
+			} else {
+				// Right code for switch goes here
+			}
+		}
 		autoTimer.Start();
 	}
 	void AutonomousPeriodic(){
