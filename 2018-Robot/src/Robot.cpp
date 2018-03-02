@@ -47,14 +47,15 @@ private:
 	AnalogInput *lPot = new AnalogInput(0);
 	AnalogInput *rPot = new AnalogInput(1);
 	double kPivot= .5, lIntakePos, rIntakePos;
-	double lIntakeWide, lIntakeNarrow, lIntakeIn, rIntakeWide, rIntakeNarrow, rIntakeIn;
+	double lIntakeWide = 4.19, lIntakeNarrow = 3.16, lIntakeIn = 1.25;
+	double rIntakeWide = 0.25, rIntakeNarrow = 1.18, rIntakeIn = 2.66;
 
 	//lift
 	TalonSRX * lift = new TalonSRX(0);
-	TalonSRX * arm = new TalonSRX(0);
+	TalonSRX * arm = new TalonSRX(2);
 	DoubleSolenoid * cubeGrabber = new DoubleSolenoid(4,5);
 	double kLP, kLI, kLD, kAP, kAI, kAD;
-	int switchPos, scaleLiftPos, scaleArmPos, freeArmPos, freeLiftPos;
+	int switchPos = 38722, scaleLiftPos, scaleArmPos = 111228, freeLiftPos;
 	int liftPos, armPos, setLiftPos, setArmPos;
 	int objective; //0 = intake, 1 = scale, 2 = switch
 
@@ -184,6 +185,7 @@ private:
 		rDrive1->Config_kD(0,kVD,kTimeoutMs);
 
 		climbing = false;
+		arm->SetSelectedSensorPosition(0,0,kTimeoutMs);
 	}
 	void TeleopPeriodic() {
 		if(dr->GetRawButton(5) && dr->GetRawButton(6)){
@@ -233,16 +235,25 @@ private:
 		liftPos = lift->GetSelectedSensorPosition(0);
 		armPos = arm->GetSelectedSensorPosition(0);
 		if(objective == 0){
-			if(armPos < freeArmPos){
-				setArmPos = 0; setLiftPos = 0;
+			if(armPos < 800){
+				setArmPos = 0;
+				setLiftPos = 0;
 			}
 			else{
-				if(liftPos > freeLiftPos){ setArmPos = 0; setLiftPos=freeLiftPos+500; }
-				else{ setLiftPos = freeLiftPos + 500; setArmPos = freeArmPos; }
+				if(liftPos > freeLiftPos){
+					setArmPos = 0;
+					setLiftPos=freeLiftPos+500;
+				}
+				else {
+					setLiftPos = freeLiftPos + 500;
+					// For setting values, freeArmPos is 0
+					setArmPos = 0;
+				}
 			}
 		}
 		else if(objective == 1){
-			if(armPos > freeArmPos || liftPos > freeLiftPos){
+			// For checks I set freeArmPos to 800
+			if(armPos > 800 || liftPos > freeLiftPos){
 				setArmPos = scaleArmPos;
 				setLiftPos = scaleLiftPos;
 			}
@@ -256,8 +267,7 @@ private:
 				setArmPos = switchPos;
 			}
 			else{
-				setLiftPos = freeLiftPos+500;
-				setArmPos = freeArmPos+500;
+				setArmPos = 500; //setArmPos = freeArmPos+500;
 			}
 			if(armPos > freeLiftPos){
 				setArmPos = switchPos;
@@ -276,12 +286,14 @@ private:
 		lIntake->Set(ControlMode::PercentOutput, kPivot*(lPot->GetVoltage()-lIntakePos));
 		rIntake->Set(ControlMode::PercentOutput, kPivot*(rPot->GetVoltage()-rIntakePos));
 
-
+		SmartDashboard::PutNumber("LPot", lPot->GetVoltage());
+		SmartDashboard::PutNumber("RPot", rPot->GetVoltage());
 		SmartDashboard::PutNumber("Motor velocity Left", lDrive1->GetSelectedSensorVelocity(0));
 		SmartDashboard::PutNumber("Motor velocity Right", rDrive1->GetSelectedSensorVelocity(0));
 		SmartDashboard::PutNumber("Desired Motor velocity Left", lPow);
 		SmartDashboard::PutNumber("Desired Motor velocity Right", rPow);
 		SmartDashboard::PutNumber("Angle", ahrs->GetYaw());
+		SmartDashboard::PutNumber("Arm", arm->GetSelectedSensorPosition(0));
 	}
 
 };
