@@ -674,6 +674,14 @@ private:
 			cubeGrabber->Set(DoubleSolenoid::kForward);
 			if(objective == 0){	lIntake->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(3)));	grab = true;}
 			else if(objective == 2){ puncher->Set(DoubleSolenoid::kForward); }
+			else if(objective == 1){
+				if(adjust(op->GetRawAxis(2)) > .5){
+					puncher->Set(DoubleSolenoid::kForward);
+				}
+				else{
+					puncher->Set
+				}
+			}
 			SmartDashboard::PutBoolean("Grab", false);
 		}
 		else if(adjust(op->GetRawAxis(2)) > 0){
