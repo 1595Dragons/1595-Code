@@ -8,7 +8,6 @@
 
 float integrate(float current, float total, float setPoint, float constant, float izone, bool continuous){
 	float curError = current - setPoint;
-	if(curError > izone || curError < -izone) { return(0); }
 	if(continuous){
 		if(curError > 180){
 			curError = curError - 360;
@@ -17,8 +16,9 @@ float integrate(float current, float total, float setPoint, float constant, floa
 			curError = curError+360;
 		}
 	}
+	if(curError > izone || curError < -izone) { return(0); }
 	curError = curError * constant;
-	total = total+curError*constant;
+	total = total+curError;
 	return(total);
 }
 

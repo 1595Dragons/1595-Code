@@ -40,7 +40,7 @@ private:
 
 	//climbing
 	DoubleSolenoid * PTO = new DoubleSolenoid(0,1);
-
+	DoubleSolenoid * climberBrake = new DoubleSolenoid(6,7);
 
 	Joystick *op = new Joystick(1);
 
@@ -51,19 +51,20 @@ private:
 	//lift
 	TalonSRX * lift = new TalonSRX(1);
 	TalonSRX * arm = new TalonSRX(11);
-	Encoder * liftEnc = new Encoder(3,4);
 	DoubleSolenoid * cubeGrabber = new DoubleSolenoid(4,5);
 	DoubleSolenoid * puncher = new DoubleSolenoid(3,2);
+	AnalogInput * bottomSwitch = new AnalogInput(0);
 	Timer grabTimer;
 	double kLP, kLI, kLD, kLIZ, kAP, kAI, kAD, kAIZ;
-	int switchPos = 110000, scaleLiftPos=1250, scaleArmPos = 300000, freeLiftPos=450, freeLiftCubePos=1250;
-	int liftPos, armPos, setLiftPos=0, setArmPos=0;
+	int switchPos = 110000, scaleLiftPos=1250, scaleArmPos = 270000, freeLiftPos=450, freeLiftCubePos=1250;
+	int liftPos, armPos, setLiftPos=0, setArmPos=0; //110000, 300000
 	double armPow;
 	int objective; //0 = intake, 1 = scale, 2 = switch
 	bool grab; //whether or not we are grabbing cube
 	bool trigger; //to tell when the thing is updated so lift can be manually controlled
 	bool grabTrigger;
 	//auto
+	double driveAccel=800, driveMaxVel=800, distanceToZero, velSetpoint;
 	double autoDelay;
 	float disSetpoint, angleSetpoint, lastAngle;
 	SendableChooser<std::string> chooser;
@@ -95,6 +96,9 @@ private:
 	std::string autoSelected;
 	ofstream outputFile; //output file
 
+	bool practiceRobot = true; double liftScale = 16;
+
+	TalonSRX * test = new TalonSRX(0);
 	void RobotInit() {
 		prefs = Preferences::GetInstance();
 		chooser.AddDefault(driveForward, driveForward);
@@ -116,19 +120,21 @@ private:
 		rDrive2->SetInverted(true);
 		lDrive1->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
 		rDrive1->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
-		lDrive1->SetSensorPhase(true);
+		lDrive1->SetSensorPhase(!practiceRobot);
 		rDrive1->SetSensorPhase(true);
 
 		//operator
 		rIntake->Set(ControlMode::Follower, 8); //follow lIntake
-		lIntake->SetInverted(true);
+		rIntake->SetInverted(true);
 		arm->ConfigSelectedFeedbackSensor(FeedbackDevice::CTRE_MagEncoder_Absolute,0,kTimeoutMs);
-		arm->SetInverted(true);
+	//	arm->SetInverted(true);
 		arm->SetSensorPhase(true);
-		lift->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
+		if(!practiceRobot){
+			lift->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
+		}
+		else { lift->ConfigSelectedFeedbackSensor(FeedbackDevice::CTRE_MagEncoder_Absolute,0,kTimeoutMs); }
 		lift->SetInverted(true);
 		lift->SetSensorPhase(true);
-
 
         try {
             ahrs = new AHRS(I2C::Port::kMXP);
@@ -163,12 +169,12 @@ private:
 
 
 
-		arm->Config_kF(0,.0361, kTimeoutMs);
+		arm->Config_kF(0,.0361, kTimeoutMs);  //.0361, .1, 0, 0
 		arm->Config_kP(0, .1, kTimeoutMs);
 		arm->Config_kI(0, 0, kTimeoutMs);
 		arm->Config_kD(0, 0, kTimeoutMs);
-		arm->ConfigMotionCruiseVelocity(20000, kTimeoutMs);
-		arm->ConfigMotionAcceleration(40000, kTimeoutMs);
+		arm->ConfigMotionCruiseVelocity(20000, kTimeoutMs); //20000
+		arm->ConfigMotionAcceleration(40000, kTimeoutMs); //40000
 
 		lift->Config_kF(0,1.13,kTimeoutMs);
 		lift->Config_kP(0,4,kTimeoutMs);
@@ -177,23 +183,31 @@ private:
 		lift->ConfigMotionCruiseVelocity(150, kTimeoutMs);
 		lift->ConfigMotionAcceleration(1000, kTimeoutMs);
 
-		//turning: .3, 2, .01, 1, 0, 1000, 800
-		lDrive1->Config_kF(0,.3, kTimeoutMs); //.55
-		lDrive1->Config_kP(0,2,kTimeoutMs);
+		lDrive1->Config_kF(0,kVF*kLFMod, kTimeoutMs);
+		lDrive1->Config_kP(0,kVP,kTimeoutMs);
+		lDrive1->Config_kI(0,kVI,kTimeoutMs);
+		lDrive1->Config_kD(0,kVD,kTimeoutMs);
+		rDrive1->Config_kF(0,kVF,kTimeoutMs);
+		rDrive1->Config_kP(0,kVP,kTimeoutMs);
+		rDrive1->Config_kI(0,kVI,kTimeoutMs);
+		rDrive1->Config_kD(0,kVD,kTimeoutMs);
+		/*
+		lDrive1->Config_kF(0,.3, kTimeoutMs);
+		lDrive1->Config_kP(0,3,kTimeoutMs);
 		lDrive1->Config_kI(0,.1,kTimeoutMs);
-		lDrive1->Config_IntegralZone(0,1,kTimeoutMs);
+		lDrive1->Config_IntegralZone(0,2,kTimeoutMs);
 		lDrive1->Config_kD(0,0,kTimeoutMs);
-		lDrive1->ConfigMotionCruiseVelocity(800, kTimeoutMs); //1000
-		lDrive1->ConfigMotionAcceleration(800, kTimeoutMs); //1500
+		lDrive1->ConfigMotionCruiseVelocity(900, kTimeoutMs);
+		lDrive1->ConfigMotionAcceleration(600, kTimeoutMs);
 
-		rDrive1->Config_kF(0,.3, kTimeoutMs); //.55
-		rDrive1->Config_kP(0,2,kTimeoutMs);
-		rDrive1->Config_kI(0,.1,kTimeoutMs);
-		rDrive1->Config_IntegralZone(0,1,kTimeoutMs);
+		rDrive1->Config_kF(0,.3, kTimeoutMs);
+		rDrive1->Config_kP(0,3,kTimeoutMs);
+		rDrive1->Config_kI(0,.15,kTimeoutMs);
+		rDrive1->Config_IntegralZone(0,2,kTimeoutMs);
 		rDrive1->Config_kD(0,0,kTimeoutMs);
-		rDrive1->ConfigMotionCruiseVelocity(800, kTimeoutMs); //1000
-		rDrive1->ConfigMotionAcceleration(800, kTimeoutMs); //1500
-
+		rDrive1->ConfigMotionCruiseVelocity(900, kTimeoutMs);
+		rDrive1->ConfigMotionAcceleration(600, kTimeoutMs);
+*/
 		lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
 		rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
 		iE = 0;
@@ -209,6 +223,12 @@ private:
 				//pivot1 = -90; //switch on left side
 			} else {
 				switchR = true; //switch on right side
+			}
+			if (gameData[1] == 'L') {
+				scaleR = false;
+				//pivot1 = -90; //switch on left side
+			} else {
+				scaleR = true; //switch on right side
 			}
 		}
 		autoTimer.Start();
@@ -228,7 +248,7 @@ private:
 
 
 		lift->SetSelectedSensorPosition(300,0,kTimeoutMs);
-		arm->SetSelectedSensorPosition(000,0,kTimeoutMs);
+	//	arm->SetSelectedSensorPosition(000,0,kTimeoutMs);
 
 		if(autoSelected == switchMid){
 			lift->SetSelectedSensorPosition(700,0,kTimeoutMs);
@@ -241,8 +261,8 @@ private:
 				if(autoStage == 0){
 					angleSetpoint = 90;
 					disSetpoint = 200;
-					driving = true;
-					turning = false;
+					driving = false;
+					turning = true;
 					backwards = true;
 				}
 				if(autoStage == 1){
@@ -252,8 +272,9 @@ private:
 
 			}
 			else if(autoSelected == switchMid){
-				lift->Set(ControlMode::MotionMagic, freeLiftCubePos);
-				if((lift->GetSelectedSensorPosition(0)) +150 > freeLiftCubePos){
+				SmartDashboard::PutNumber("SwichMid", 1);
+				lift->Set(ControlMode::MotionMagic, freeLiftCubePos+100);
+				if((lift->GetSelectedSensorPosition(0)) > freeLiftCubePos){
 					arm->Set(ControlMode::MotionMagic, switchPos);
 				}
 				if(!switchR){
@@ -269,7 +290,7 @@ private:
 					if(autoStage == 2){
 						//arm->Set(ControlMode::Position, switchPos);
 						turning = false; driving = true; backwards = false;
-						disSetpoint = 108;
+						disSetpoint = 105;
 					}
 					if(autoStage == 3){
 						lastAngle = angleSetpoint;
@@ -277,7 +298,7 @@ private:
 						turning = true; driving = false; backwards =false;
 					}
 					if(autoStage == 4){
-						disSetpoint = 100-15;
+						disSetpoint = 95-15;
 						turning = false; driving = true; backwards = false;
 					}
 					if(autoStage == 5){
@@ -306,12 +327,11 @@ private:
 					disSetpoint = nearScaleDis1;
 					lift->Set(ControlMode::MotionMagic, 1500);
 					if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
-					//	arm->Set(ControlMode::MotionMagic, scaleArmPos);
+						arm->Set(ControlMode::MotionMagic, scaleArmPos);
 					}
 				}
 					if(autoStage == 1){
 						turning = true; driving = false; backwards = true;
-						lastAngle = angleSetpoint;
 						angleSetpoint = nearScalePivot1;
 					}
 					if(autoStage == 2){
@@ -443,54 +463,68 @@ private:
 			}
 
 			if(turning){
-				float curErr = angleSetpoint-ahrs->GetYaw();
-				if(curErr > 180){
-					curErr = curErr - 360;
-				}
-				else if(curErr < -180){
-					curErr = curErr+360;
-				}
-			//	if(curErr > 5){
-					lDrive1->Set(ControlMode::MotionMagic, lDrive1->GetSelectedSensorPosition(0)+(curErr)*angleToEnc);
-					rDrive1->Set(ControlMode::MotionMagic, rDrive1->GetSelectedSensorPosition(0)-(curErr)*angleToEnc);
-					if(fabs(curErr) > 3){
-						autoTimer.Reset();
-					}
-					if(autoTimer.Get() >.5){
-						autoStage++;
-						lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
-						rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
-			//			lDrive1->ConfigMotionAcceleration(2000, kTimeoutMs);
-			//			rDrive1->ConfigMotionAcceleration(2000, kTimeoutMs);
-			//			lDrive1->Config_kI(0,.0,kTimeoutMs);
-			//			rDrive1->Config_kI(0,.0,kTimeoutMs);
-						Wait(.01);
-					}
-			/*	}
-				else{
-					curVal = ahrs->GetYaw();
-					iE = integrate(curVal, iE, angleSetpoint, kGI, kGIZ, true);
-					tE = PIDify(pastVal, curVal, angleSetpoint, kGP, iE, kGD, true);
-					lDrive1->Set(ControlMode::PercentOutput, 0);
-					rDrive1->Set(ControlMode::PercentOutput, 0);
+				curVal = ahrs->GetYaw();
+				iE = integrate(curVal, iE, angleSetpoint, kGI, kGIZ, true);
+				tE = PIDify(pastVal, curVal, angleSetpoint, kGP, iE, kGD, true);
+				if(tE > .6) {	tE = .6;	}
+				else if (tE <= -.6){ tE = -.6;	}
+				lDrive1->Set(ControlMode::Velocity, -tE*800);
+				rDrive1->Set(ControlMode::Velocity, tE*800);
 
-					if(abs(angleSetpoint-curVal)>1){
-						autoTimer.Reset();
-					}
-					if(autoTimer.Get()>.5){
-						autoStage++;
-						lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
-						rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
-						Wait(.01);
-					}
-				}*/
+				double curError = angleSetpoint - curVal;
+				if(curError > 180){
+					curError = curError - 360;
+				}
+				else if(curError < -180){
+					curError = curError+360;
+				}
+
+				if(fabs(curError)>1.5){
+					autoTimer.Reset();
+				}
+				if(autoTimer.Get()>.5){
+					autoStage++;
+					lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
+					rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
+					Wait(.01);
+				}
+				pastVal = curVal;
+				//
 			}
 
 			else if(driving){
 				if(backwards){ disSetpoint *= -1; }
-				lDrive1->Set(ControlMode::MotionMagic, disSetpoint*distToEnc);
+
+				distanceToZero = 10*(lDrive1->GetSelectedSensorVelocity(0)^2/(driveAccel*2));
+				if(fabs(distanceToZero) > fabs(disSetpoint - lDrive1->GetSelectedSensorPosition(0)/distToEnc) && velSetpoint < driveMaxVel){
+					if(!backwards){ velSetpoint += driveAccel * .02; }
+					else { velSetpoint -= driveAccel * .02; }
+				}
+				else if (fabs(distanceToZero < fabs(disSetpoint - lDrive1->GetSelectedSensorPosition(0)/distToEnc))){
+					if(!backwards){ velSetpoint -= driveAccel * .02; }
+					else { velSetpoint += driveAccel * .02; }
+				}
+
+				double curError = angleSetpoint - ahrs->GetYaw();
+				if(curError > 180){
+					curError = curError - 360;
+				}
+				else if(curError < -180){
+					curError = curError+360;
+				}
+				if(!backwards){
+					lDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+					rDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+				}
+				else{
+					lDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+					rDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+				}
+/*
 				rDrive1->Set(ControlMode::MotionMagic, disSetpoint*distToEnc);
-				if(abs(lDrive1->GetSelectedSensorPosition(0) - disSetpoint*distToEnc) < 30){
+				lDrive1->Set(ControlMode::MotionMagic, disSetpoint*distToEnc);
+*/
+				if(abs(lDrive1->GetSelectedSensorPosition(0) - disSetpoint*distToEnc) < 5){
 					autoStage ++;
 					lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
 					rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
@@ -500,29 +534,6 @@ private:
 		//			rDrive1->Config_kI(0,.03,kTimeoutMs);
 					Wait(.01);
 				}
-			/*	curVal = ahrs->GetYaw();
-				if(backwards){ disSetpoint *= -1; }
-				float distance = (rDrive1->GetSelectedSensorPosition(0)+lDrive1->GetSelectedSensorPosition(0))/2/distToEnc;
-				diE = integrate(distance, diE, disSetpoint, kDI, kDIZ, false);
-				float dTE = PIDify(pastDist, distance, disSetpoint, kDP, diE, kDD, false);
-				pastDist = distance;
-				float tE = PIDify(pastVal, curVal, angleSetpoint, kDP, 0, kDD, true);
-				pastVal = curVal;
-				if(dTE > 1){ dTE = 1; }
-				SmartDashboard::PutNumber("Distance", distance);
-				if(!backwards){
-					lDrive1->Set(ControlMode::PercentOutput, (-dTE * (1-tE)));
-					rDrive1->Set(ControlMode::PercentOutput, (-dTE * (1+tE)));
-				}
-				else{
-					lDrive1->Set(ControlMode::PercentOutput, (-dTE * (1+tE)));
-					rDrive1->Set(ControlMode::PercentOutput, (-dTE * (1-tE)));
-
-				}
-				if(fabs(distance - disSetpoint) < 2){
-					autoStage++;
-				}
-			*/
 			}
 
 			else{
@@ -534,6 +545,7 @@ private:
 			SmartDashboard::PutNumber("Ldist", lDrive1->GetSelectedSensorPosition(0));
 			SmartDashboard::PutNumber("Angle", ahrs->GetYaw());
 			SmartDashboard::PutNumber("Arm", arm->GetSelectedSensorPosition(0));
+			SmartDashboard::PutNumber("tE", tE);
 		}
 	}
 	/**
@@ -546,33 +558,34 @@ private:
 		kVI=prefs->GetDouble("kVI", kVI);
 		kVD=prefs->GetDouble("kVD", kVD);
 
-		lDrive1->Config_kF(0,kVF*kLFMod, kTimeoutMs);
-		lDrive1->Config_kP(0,kVP,kTimeoutMs);
-		lDrive1->Config_kI(0,kVI,kTimeoutMs);
-		lDrive1->Config_kD(0,kVD,kTimeoutMs);
-		rDrive1->Config_kF(0,kVF,kTimeoutMs);
-		rDrive1->Config_kP(0,kVP,kTimeoutMs);
-		rDrive1->Config_kI(0,kVI,kTimeoutMs);
-		rDrive1->Config_kD(0,kVD,kTimeoutMs);
-
 		climbing = false;
 		arm->SetSelectedSensorPosition(0,0,kTimeoutMs);
-		lift->SetSelectedSensorPosition(300,0,kTimeoutMs);
+		if(!practiceRobot){	lift->SetSelectedSensorPosition(300,0,kTimeoutMs); }
+		else { lift->SetSelectedSensorPosition(300 * liftScale,0,kTimeoutMs); }
 
-
-		arm->Config_kF(0,.0361, kTimeoutMs);
+		arm->Config_kF(0,.0361, kTimeoutMs);  //.0361, .1, 0, 0
 		arm->Config_kP(0, .1, kTimeoutMs);
 		arm->Config_kI(0, 0, kTimeoutMs);
 		arm->Config_kD(0, 0, kTimeoutMs);
-		arm->ConfigMotionCruiseVelocity(20000, kTimeoutMs);
-		arm->ConfigMotionAcceleration(40000, kTimeoutMs);
+		arm->ConfigMotionCruiseVelocity(20000, kTimeoutMs); //20000
+		arm->ConfigMotionAcceleration(40000, kTimeoutMs); //40000
 
-		lift->Config_kF(0,1.13,kTimeoutMs);
-		lift->Config_kP(0,4,kTimeoutMs);
-		lift->Config_kI(0,kLI,kTimeoutMs);
-		lift->Config_kD(0,kLD,kTimeoutMs);
-		lift->ConfigMotionCruiseVelocity(150, kTimeoutMs);
-		lift->ConfigMotionAcceleration(1000, kTimeoutMs);
+		if(!practiceRobot){
+			lift->Config_kF(0,1.13,kTimeoutMs);
+			lift->Config_kP(0,4,kTimeoutMs);
+			lift->Config_kI(0,kLI,kTimeoutMs);
+			lift->Config_kD(0,kLD,kTimeoutMs);
+			lift->ConfigMotionCruiseVelocity(150, kTimeoutMs);
+			lift->ConfigMotionAcceleration(1000, kTimeoutMs);
+		}
+		else{
+			lift->Config_kF(0,1.13/liftScale,kTimeoutMs);
+			lift->Config_kP(0,4/liftScale,kTimeoutMs);
+			lift->Config_kI(0,kLI,kTimeoutMs);
+			lift->Config_kD(0,kLD,kTimeoutMs);
+			lift->ConfigMotionCruiseVelocity(150*liftScale, kTimeoutMs);
+			lift->ConfigMotionAcceleration(1000*liftScale, kTimeoutMs);
+		}
 	//	arm->Config_IntegralZone(0,kAIZ, kTimeoutMs);
 
 		objective = 0; trigger = true;
@@ -582,6 +595,7 @@ private:
 	void TeleopPeriodic() {
 		if(dr->GetRawButton(5) && dr->GetRawButton(6)){
 			climbing = true;
+			climberBrake->Set(DoubleSolenoid::kForward);
 		}
 
 		if(climbing){
@@ -594,6 +608,7 @@ private:
 				PTOBool = true;
 			}
 		}
+		else { climberBrake->Set(DoubleSolenoid::kReverse); }
 
 			turn = adjust(dr->GetRawAxis(4)); //get the turn, scale it down
 		//	if(turn < 0){ turn = -turn*turn/3;	}
@@ -617,8 +632,13 @@ private:
 		if(op->GetPOV() == 180){ objective = 2; trigger = true; }
 		else if(op->GetPOV() == 270){ objective = 0; trigger = true; }
 		else if(op->GetPOV() == 0){ objective = 1; trigger = true; }
+		else if(op->GetPOV() == 90){ objective = 3; trigger = true; }
 
-		liftPos = lift->GetSelectedSensorPosition(0);
+		if(!practiceRobot){
+			liftPos = lift->GetSelectedSensorPosition(0);
+		}
+		else{ liftPos = lift->GetSelectedSensorPosition(0)/liftScale; }
+
 		armPos = arm->GetSelectedSensorPosition(0);
 		if(trigger){
 			if(objective == 0){ //intake
@@ -648,6 +668,11 @@ private:
 					setLiftPos = scaleLiftPos+150; //otherwise raise lift till all is good
 				}
 			}
+			else if(objective == 3){
+				if(armPos > 20000){ setArmPos = scaleArmPos; setLiftPos = 300; trigger = false;}
+				else if(liftPos > freeLiftCubePos){ setArmPos = scaleArmPos; }
+				else { setLiftPos = freeLiftCubePos + 150; }
+			}
 			else if(objective == 2){ //switch
 				if(liftPos > freeLiftCubePos){	setArmPos = switchPos;	} //if arm is free to go, move it
 				else{ setLiftPos = freeLiftCubePos+150; } //otherwise make it free
@@ -664,7 +689,7 @@ private:
 			setArmPos -= adjust(op->GetRawAxis(1)) * 3000;
 		}
 		if(setLiftPos < 0) { setLiftPos = 0; } //put limits on what the lift can be set to
-		else if(setLiftPos > 2500){ setLiftPos = 2500; }
+		else if(setLiftPos > 2700){ setLiftPos = 2700; }
 	//	if(setArmPos < 0) { setArmPos = 0; } //put limits on what the arm can be set to
 		if(setArmPos > 320000){ setArmPos = 320000; }
 
@@ -672,15 +697,16 @@ private:
 		//handle what to do with grabber and intake
 		if(adjust(op->GetRawAxis(3)) > 0){
 			cubeGrabber->Set(DoubleSolenoid::kForward);
-			if(objective == 0){	lIntake->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(3)));	grab = true;}
-			else if(objective == 2){ puncher->Set(DoubleSolenoid::kForward); }
+			if(objective == 0){
+
+				lIntake->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(3))); grab = true;
+			}
+			else if(objective == 2){
+				puncher->Set(DoubleSolenoid::kForward);
+				cubeGrabber->Set(DoubleSolenoid::kForward);
+			}
 			else if(objective == 1){
-				if(adjust(op->GetRawAxis(2)) > .5){
-					puncher->Set(DoubleSolenoid::kForward);
-				}
-				else{
-					puncher->Set
-				}
+				cubeGrabber->Set(DoubleSolenoid::kForward);
 			}
 			SmartDashboard::PutBoolean("Grab", false);
 		}
@@ -689,18 +715,24 @@ private:
 			SmartDashboard::PutBoolean("Grab", true);
 			lIntake->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(2)));
 		}
+		else if(op->GetRawButton(5) && objective == 1){
+			puncher->Set(DoubleSolenoid::kForward); cubeGrabber->Set(DoubleSolenoid::kForward);
+		}
 		else if(op->GetRawButton(6)){
 			lIntake->Set(ControlMode::PercentOutput, -1);
 		}
 		else{
+			puncher->Set(DoubleSolenoid::kReverse);
 			if(grab){
-				setLiftPos = 40;
-				if(liftPos < 60){
+				setLiftPos = 30;
+				if(liftPos < 40){
+				//	cubeGrabber->Set(DoubleSolenoid::kForward);
 					grab = false;
 					cubeGrabber->Set(DoubleSolenoid::kReverse);
 					SmartDashboard::PutBoolean("Grab", true);
 					Wait(.2);
 					setLiftPos = 300;
+					grab = false;
 				}
 /*				if(!grabTrigger){
 					grabTrigger = true;
@@ -724,8 +756,17 @@ private:
 	//	lift->Set(ControlMode::PercentOutput, -adjust(op->GetRawAxis(5)));
 	//	arm->Set(ControlMode::PercentOutput, -adjust(op->GetRawAxis(1)));
 
+//		if(objective==1){ setArmPos = scaleArmPos; }
+//		else if(objective == 2){ setArmPos = switchPos; }
+//		else { setArmPos = 0; }
+
 		arm->Set(ControlMode::MotionMagic,setArmPos);
-		lift->Set(ControlMode::MotionMagic,setLiftPos);
+//		arm->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(1)));
+		if(!practiceRobot){
+			lift->Set(ControlMode::MotionMagic,setLiftPos);
+		}
+		else { lift->Set(ControlMode::MotionMagic,setLiftPos*liftScale); }
+
 
 //		SmartDashboard::PutNumber("LPot", lPot->GetVoltage());
 //		SmartDashboard::PutNumber("RPot", rPot->GetVoltage());
@@ -735,9 +776,10 @@ private:
 		SmartDashboard::PutNumber("Desired Motor velocity Right", rPow);
 		SmartDashboard::PutNumber("Angle", ahrs->GetYaw());
 		SmartDashboard::PutNumber("Arm", arm->GetSelectedSensorPosition(0));
-//		SmartDashboard::PutNumber("arm error", arm->GetClosedLoopError(0));
+		SmartDashboard::PutNumber("arm current", arm->GetOutputCurrent());
 		SmartDashboard::PutNumber("Lift", liftPos);
 		SmartDashboard::PutNumber("Objective", objective);
+		SmartDashboard::PutNumber("Switch", bottomSwitch->GetVoltage());
 	}
 };
 
