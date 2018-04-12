@@ -53,7 +53,8 @@ private:
 	TalonSRX * arm = new TalonSRX(11);
 	DoubleSolenoid * cubeGrabber = new DoubleSolenoid(4,5);
 	DoubleSolenoid * puncher = new DoubleSolenoid(3,2);
-	AnalogInput * bottomSwitch = new AnalogInput(0);
+	DigitalInput * bottomSwitch = new DigitalInput(0);
+	DigitalInput * armSwitch = new DigitalInput(1);
 	Timer grabTimer;
 	double kLP, kLI, kLD, kLIZ, kAP, kAI, kAD, kAIZ;
 	int switchPos = 110000, scaleLiftPos=1250, scaleArmPos = 270000, freeLiftPos=450, freeLiftCubePos=1250;
@@ -64,7 +65,7 @@ private:
 	bool trigger; //to tell when the thing is updated so lift can be manually controlled
 	bool grabTrigger;
 	//auto
-	double driveAccel=800, driveMaxVel=800, distanceToZero, velSetpoint;
+	double driveAccel=1200, driveMaxVel=1200, distanceToZero, velSetpoint;
 	double autoDelay;
 	float disSetpoint, angleSetpoint, lastAngle;
 	SendableChooser<std::string> chooser;
@@ -72,17 +73,21 @@ private:
 	float driveForwardDis = 200;
 	const std::string switchMid = "switchMid";
 	float pivot1 = 90;
-	float neutralDis = 210;
+	float neutralDis = 220;
+	float centerSwitchTurn = 60;
 	const std::string scaleLeft = "scaleLeft";
 	const std::string switchLeft = "swichLeft";
-	int nearScaleDis1 = 252, nearScalePivot1 = 35, nearScaleDis2 = 36, nearScalePivot2=-11, nearScaleDis3=80;
-	float neutralPivot = 90, farScaleDis1=192, farScaleDis2 = 70, farSwitchDis1 = 167, nearSwitchDis=55, switchDis=5;
+	int nearScaleDis1 = 240, nearScalePivot1 = 25, nearScaleDis2 = 52, nearScalePivot2=-8, nearScaleDis3=70;
+	float neutralPivot = 90, farScaleDis1=210, farScaleDis2 = 64, farSwitchDis1 = 170, nearSwitchDis=46, switchDis=5;
 	bool backwards;
+	const std::string adaptiveRight = "adaptiveRight";
+	const std::string adaptiveLeft = "adaptiveLeft";
 	float scalePivot1=25, scaleDis1=72;
 	float autoDropHeight;
 	const std::string scaleRight = "scaleRight";
 	const std::string switchRight = "switchRight";
-	double distToEnc = 105.5, angleToEnc=21; //103.87 for pracice robot
+	const std::string testTurn = "testTurn";
+	double distToEnc = 100, angleToEnc=21; //103.87 for pracice robot
 	bool switchR, scaleR;
 	bool turning, driving, turnR;
 	bool crossing;
@@ -90,15 +95,15 @@ private:
 	float iE, tE, curVal, pastVal, diE, dtE, pastDist;
 	int autoStage = 0;
 	Timer autoTimer;
+	Timer delayTimer;
 	Preferences *prefs;
 	AHRS *ahrs;
 	//LiveWindow* lw = LiveWindow::GetInstance();
 	std::string autoSelected;
 	ofstream outputFile; //output file
 
-	bool practiceRobot = true; double liftScale = 16;
+	bool practiceRobot = false; double liftScale = 16;
 
-	TalonSRX * test = new TalonSRX(0);
 	void RobotInit() {
 		prefs = Preferences::GetInstance();
 		chooser.AddDefault(driveForward, driveForward);
@@ -107,6 +112,9 @@ private:
 		chooser.AddObject(scaleRight, scaleRight);
 		chooser.AddObject(switchLeft, switchLeft);
 		chooser.AddObject(switchRight, switchRight);
+		chooser.AddObject(adaptiveLeft, adaptiveLeft);
+		chooser.AddObject(adaptiveRight, adaptiveRight);
+		chooser.AddObject(testTurn, testTurn);
 		SmartDashboard::PutData("Auto Modes", &chooser);
 
 		//drive
@@ -120,7 +128,7 @@ private:
 		rDrive2->SetInverted(true);
 		lDrive1->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
 		rDrive1->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
-		lDrive1->SetSensorPhase(!practiceRobot);
+		lDrive1->SetSensorPhase(true);
 		rDrive1->SetSensorPhase(true);
 
 		//operator
@@ -129,12 +137,12 @@ private:
 		arm->ConfigSelectedFeedbackSensor(FeedbackDevice::CTRE_MagEncoder_Absolute,0,kTimeoutMs);
 	//	arm->SetInverted(true);
 		arm->SetSensorPhase(true);
-		if(!practiceRobot){
+	//	if(!practiceRobot){
 			lift->ConfigSelectedFeedbackSensor(FeedbackDevice::QuadEncoder,0,kTimeoutMs);
-		}
-		else { lift->ConfigSelectedFeedbackSensor(FeedbackDevice::CTRE_MagEncoder_Absolute,0,kTimeoutMs); }
-		lift->SetInverted(true);
-		lift->SetSensorPhase(true);
+	//	}
+	//	else { lift->ConfigSelectedFeedbackSensor(FeedbackDevice::CTRE_MagEncoder_Absolute,0,kTimeoutMs); }
+		lift->SetInverted(false);
+		lift->SetSensorPhase(false);
 
         try {
             ahrs = new AHRS(I2C::Port::kMXP);
@@ -149,20 +157,13 @@ private:
 //        outputFile << "Time,lPosition,rPosition,lVel,rVel" << endl;
 	}
 
-	void Disabled(){
+	void DisabledPeriodic(){
+		SmartDashboard::PutNumber("Angle", ahrs->GetYaw());
 	}
 
 	void AutonomousInit(){
 		ahrs->ZeroYaw();
 		autoStage = 0;
-		kDP=prefs->GetDouble("kDP", kDP);
-		kDI=prefs->GetDouble("kDI", kDI);
-		kDD=prefs->GetDouble("kDD", kDD);
-		kDIZ=prefs->GetDouble("kDIZ", kDIZ);
-		kGP=prefs->GetDouble("kGP", kGP);
-		kGI=prefs->GetDouble("kGI", kGI);
-		kGD=prefs->GetDouble("kGD", kGD);
-		kGIZ=prefs->GetDouble("kGIZ", kGIZ);
 
 
 		autoDelay = prefs->GetDouble("autoDelay", autoDelay);
@@ -223,6 +224,7 @@ private:
 				//pivot1 = -90; //switch on left side
 			} else {
 				switchR = true; //switch on right side
+				centerSwitchTurn *= -1;
 			}
 			if (gameData[1] == 'L') {
 				scaleR = false;
@@ -233,36 +235,86 @@ private:
 		}
 		autoTimer.Start();
 
+		if(autoSelected == adaptiveLeft){
+			if(!scaleR){ autoSelected = scaleLeft; }
+		//	else if(!switchR){ autoSelected = switchLeft; }
+		//	else{ autoSelected = driveForward; }
+			else { autoSelected = switchLeft; }
+		}
+		if(autoSelected == adaptiveRight){
+			if(scaleR){ autoSelected = scaleRight; }
+			//else if(switchR){ autoSelected = switchRight; }
+			//else{ autoSelected = driveForward; }
+			else { autoSelected = switchRight; }
+		}
+
+
 		if(switchR && autoSelected == switchLeft){ crossing = true; }
 		else if(scaleR && autoSelected==scaleLeft){ crossing = true; }
 		else if(!switchR && autoSelected==switchRight){ crossing = true; }
 		else if(!scaleR && autoSelected==scaleRight){ crossing = true; }
 		else { crossing = false; }
 
+		if(autoSelected == testTurn || ((autoSelected == scaleRight|| autoSelected==scaleLeft)&&!crossing)){
+			kGP=prefs->GetDouble("kGP", kGP);
+			kGI=prefs->GetDouble("kGI", kGI);
+			kGD=prefs->GetDouble("kGD", kGD);
+			kGIZ=prefs->GetDouble("kGIZ", kGIZ);
+		}
+		else{
+			kGP = .022; kGI = .003; kGD = .11; kGIZ = 5;
+		}
+
 		if(autoSelected == scaleRight){
 			scalePivot1 *= -1;
 			nearScalePivot1 *= -1;
 			nearScalePivot2*= -1;
 		}
-		if(autoSelected == scaleRight || autoSelected == switchRight){ neutralPivot *= -1; }
+		if(autoSelected == scaleLeft || autoSelected == switchLeft){ neutralPivot *= -1; }
 
 
-		lift->SetSelectedSensorPosition(300,0,kTimeoutMs);
-	//	arm->SetSelectedSensorPosition(000,0,kTimeoutMs);
 
-		if(autoSelected == switchMid){
-			lift->SetSelectedSensorPosition(700,0,kTimeoutMs);
-		}
+	/*	if(practiceRobot){
+			freeLiftCubePos *= liftScale; freeLiftPos *= liftScale;
+			lift->Config_kF(0,1.13/liftScale,kTimeoutMs);
+			lift->Config_kP(0,4/liftScale,kTimeoutMs);
+			lift->Config_kI(0,kLI,kTimeoutMs);
+			lift->Config_kD(0,kLD,kTimeoutMs);
+			lift->ConfigMotionCruiseVelocity(150*liftScale, kTimeoutMs);
+			lift->ConfigMotionAcceleration(1000*liftScale, kTimeoutMs);
+		}*/
+	//	if(autoSelected == switchMid){
+	//		lift->SetSelectedSensorPosition(700,0,kTimeoutMs);
+	//	}
+		lift->SetSelectedSensorPosition(880,0,kTimeoutMs);
+				arm->SetSelectedSensorPosition(000,0,kTimeoutMs);
 		Wait(.1);
+		delayTimer.Start();
 	}
 	void AutonomousPeriodic(){
-		if(autoTimer.Get() > autoDelay){
-			if(autoSelected == driveForward){
+		if(!bottomSwitch->Get()){
+			lift->SetSelectedSensorPosition(0,0,kTimeoutMs);
+		}
+		if(delayTimer.Get() > autoDelay){
+			if(autoSelected == testTurn){
 				if(autoStage == 0){
-					angleSetpoint = 90;
-					disSetpoint = 200;
+					angleSetpoint = 30;
 					driving = false;
 					turning = true;
+					backwards = false;
+				}
+				if(autoStage == 1){
+					turning = false;
+					driving = false;
+				}
+			}
+			else if(autoSelected == driveForward){
+				SmartDashboard::PutBoolean("Drive forwrd", true);
+				if(autoStage == 0){
+					angleSetpoint = 0;
+					disSetpoint = 200;
+					driving = true;
+					turning = false;
 					backwards = true;
 				}
 				if(autoStage == 1){
@@ -273,13 +325,15 @@ private:
 			}
 			else if(autoSelected == switchMid){
 				SmartDashboard::PutNumber("SwichMid", 1);
-				lift->Set(ControlMode::MotionMagic, freeLiftCubePos+100);
-				if((lift->GetSelectedSensorPosition(0)) > freeLiftCubePos){
-					arm->Set(ControlMode::MotionMagic, switchPos);
-				}
-				if(!switchR){
+
+				if(!switchR && autoStage < 6){
+					lift->Set(ControlMode::MotionMagic, freeLiftCubePos+150);
+					if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
+						arm->Set(ControlMode::MotionMagic, switchPos);
+					}
 					if(autoStage == 0){
-						driving = true; turning = false; backwards = false; disSetpoint = 15;
+						driving = true; turning = false; backwards = false; disSetpoint = 40;
+						angleSetpoint = 0;
 					}
 					if(autoStage == 1){
 						arm->Set(ControlMode::MotionMagic, switchPos);
@@ -290,7 +344,7 @@ private:
 					if(autoStage == 2){
 						//arm->Set(ControlMode::Position, switchPos);
 						turning = false; driving = true; backwards = false;
-						disSetpoint = 105;
+						disSetpoint = 110;
 					}
 					if(autoStage == 3){
 						lastAngle = angleSetpoint;
@@ -298,34 +352,80 @@ private:
 						turning = true; driving = false; backwards =false;
 					}
 					if(autoStage == 4){
-						disSetpoint = 95-15;
+						disSetpoint = 100-40;
 						turning = false; driving = true; backwards = false;
 					}
 					if(autoStage == 5){
 						driving = false; turning = false;
+						autoStage++;
 						cubeGrabber->Set(DoubleSolenoid::kForward);
 						puncher->Set(DoubleSolenoid::kForward);
 					}
 				}
 				else{
 					if(autoStage == 0){
-						driving = true; turning = false; backwards = false; disSetpoint = 100;
+						driving = true; turning = false; backwards = false; disSetpoint = 100; angleSetpoint = 0;
+						lift->Set(ControlMode::MotionMagic, freeLiftCubePos + 150);
+						if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
+							arm->Set(ControlMode::MotionMagic, switchPos);
+						}
 					}
 					if(autoStage == 1){
 						turning = false; driving = false;
 						cubeGrabber->Set(DoubleSolenoid::kForward);
 						puncher->Set(DoubleSolenoid::kForward);
+						autoStage ++;
 					}
+					if(autoStage == 2){ autoStage = 6; }
+				}
+				if(autoStage == 6){
+					arm->Set(ControlMode::MotionMagic, 0);
+					lift->Set(ControlMode::MotionMagic, freeLiftPos);
+					driving = true; turning = false; backwards = true; disSetpoint = 45;
+				}
+				if(autoStage == 7){
+					lIntake->Set(ControlMode::PercentOutput, .5);
+					puncher->Set(DoubleSolenoid::kReverse);
+					turning = true; driving = false; angleSetpoint = centerSwitchTurn;
+				}
+				if(autoStage == 8){
+					lift->Set(ControlMode::MotionMagic, 300);
+					turning = false; driving = true; disSetpoint = 40; backwards = false;
+				}
+				if(autoStage == 9){
+					Wait(1);
+					lIntake->Set(ControlMode::PercentOutput, 0);
+					lift->Set(ControlMode::MotionMagic, 20);
+					Wait(.5);
+					cubeGrabber->Set(DoubleSolenoid::kReverse);
+					Wait(.2);
+					lift->Set(ControlMode::MotionMagic, freeLiftCubePos+150);
+					autoStage++;
+				}
+				if(autoStage == 10){
+					turning = false; driving = true; disSetpoint = 40; backwards = true;
+				}
+				if(autoStage == 11){
+					arm->Set(ControlMode::MotionMagic, switchPos);
+					turning = true; driving = false; angleSetpoint = 0;
+				}
+				if(autoStage == 12){
+					turning = false; driving = true; backwards = false; disSetpoint = 40;
+				}
+				if(autoStage == 13){
+					turning = false; driving = false;
+					cubeGrabber->Set(DoubleSolenoid::kForward);
+					puncher->Set(DoubleSolenoid::kForward);
 				}
 
-
 			}
+			//else if((autoSelected == scaleLeft || autoSelected == scaleRight || ((autoSelected == switchRight || autoSelected == switchLeft)&&switchR == scaleR)) && !crossing){
 			else if((autoSelected == scaleLeft || autoSelected == scaleRight) && !crossing){
 				//scale near
 				if(autoStage == 0){
 					driving = true; turning = false; backwards = true;
 					disSetpoint = nearScaleDis1;
-					lift->Set(ControlMode::MotionMagic, 1500);
+					lift->Set(ControlMode::MotionMagic, 2500);
 					if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
 						arm->Set(ControlMode::MotionMagic, scaleArmPos);
 					}
@@ -337,54 +437,89 @@ private:
 					if(autoStage == 2){
 						turning = false; driving = true; backwards = true;
 						disSetpoint = nearScaleDis2;
-						angleSetpoint = nearScalePivot1;
-						if(lDrive1->GetSelectedSensorPosition(0)/distToEnc > 30){
-							cubeGrabber->Set(DoubleSolenoid::kForward);
-							puncher->Set(DoubleSolenoid::kForward);
-						}
 					}
 					if(autoStage == 3){
-						turning = true; driving = false; backwards = false;
-						angleSetpoint = nearScalePivot2;
-						puncher->Set(DoubleSolenoid::kReverse);
-						if(arm->GetSelectedSensorPosition(0) > 10000){
-							lift->Set(ControlMode::MotionMagic, freeLiftPos);
-						}
-						else{ lift->Set(ControlMode::MotionMagic, 300); }
-						arm->Set(ControlMode::MotionMagic, 0);
+						cubeGrabber->Set(DoubleSolenoid::kForward);
+						puncher->Set(DoubleSolenoid::kForward);
+						Wait(.2);
+						autoStage ++;
 					}
 					if(autoStage == 4){
-						lIntake->Set(ControlMode::PercentOutput, .5);
-						turning = false; driving = true; backwards = false;
-						disSetpoint = nearScaleDis3;
+						turning = true; driving = false; backwards = false;
+						angleSetpoint = nearScalePivot2;
+
+						arm->Set(ControlMode::MotionMagic, 0);
+						if(arm->GetSelectedSensorPosition(0) > 10000){
+							lift->Set(ControlMode::MotionMagic, freeLiftPos);
+							puncher->Set(DoubleSolenoid::kReverse);
+						}
+						else{ lift->Set(ControlMode::MotionMagic, 300); }
+
 					}
 					if(autoStage == 5){
-						driving = false; turning = false;
-						Wait(.3);
-						if(lift->GetSelectedSensorPosition(0) > 80){
-							lift->Set(ControlMode::MotionMagic, 60);
+						lIntake->Set(ControlMode::PercentOutput, .8);
+						turning = false; driving = true; backwards = false;
+						disSetpoint = nearScaleDis3;
+						arm->Set(ControlMode::MotionMagic, 0);
+						if(arm->GetSelectedSensorPosition(0) > 10000){
+							lift->Set(ControlMode::MotionMagic, freeLiftPos+150);
 						}
-						else{
-							cubeGrabber->Set(DoubleSolenoid::kReverse);
-							Wait(.1);
-							lift->Set(ControlMode::MotionMagic, freeLiftCubePos);
-							Wait(.5);
-							arm->Set(ControlMode::MotionMagic, switchPos);
-							Wait(.3);
-							autoStage++;
-						}
+						else{ lift->Set(ControlMode::MotionMagic, 300); }
 					}
-					if(autoStage == 6 && ((switchR && scaleR) || (!switchR && !scaleR))){
-						driving = true; turning = false; backwards = false;
-						disSetpoint = 5;
-					}
-					if(autoStage == 7){
+					if(autoStage == 6){
 						driving = false; turning = false;
+						lDrive1->Set(ControlMode::PercentOutput, .4);
+						Wait(.2);
+						lDrive1->Set(ControlMode::PercentOutput, -.4);
+						Wait(.2);
+						lDrive1->Set(ControlMode::PercentOutput, .4);
+						Wait(.2);
+						lDrive1->Set(ControlMode::PercentOutput, -.4);
+						Wait(.2);
+						lDrive1->Set(ControlMode::PercentOutput, 0);
+						lift->Set(ControlMode::MotionMagic,20);
+						Wait(.4);
 						cubeGrabber->Set(DoubleSolenoid::kReverse);
-						puncher->Set(DoubleSolenoid::kForward);
+						Wait(.2);
+						lift->Set(ControlMode::MotionMagic, 2000);
+						autoStage++;
 					}
-					else if(autoStage == 6){
-						driving = false; turning = false;
+
+					if((autoSelected == scaleRight|| autoSelected == scaleLeft) && autoStage > 5){
+						if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
+							arm->Set(ControlMode::MotionMagic, scaleArmPos);
+						}
+						if(autoStage == 7){
+							driving = true; turning = false; backwards = true;
+							disSetpoint = nearScaleDis3-5;
+						}
+						if(autoStage == 8){
+							if(arm->GetSelectedSensorPosition(0) > 265000){
+								cubeGrabber->Set(DoubleSolenoid::kForward);
+								puncher->Set(DoubleSolenoid::kForward);
+								Wait(.2);
+								autoStage ++;
+							}
+
+
+						}
+						if(autoStage == 9){
+							lift->Set(ControlMode::MotionMagic, freeLiftPos);
+							arm->Set(ControlMode::MotionMagic, 0);
+						}
+					}
+
+					if(autoSelected==switchRight || autoSelected==switchLeft){
+						if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
+							arm->Set(ControlMode::MotionMagic, switchPos);
+						}
+						if(autoStage == 7){
+							driving = false; turning = false;
+							if(arm->GetSelectedSensorPosition(0) > 100000){
+								cubeGrabber->Set(DoubleSolenoid::kForward);
+								puncher->Set(DoubleSolenoid::kForward);
+							}
+						}
 					}
 			}
 			else{
@@ -394,10 +529,7 @@ private:
 					angleSetpoint = 0;
 					disSetpoint = neutralDis;
 					turning = false; driving = true;
-					if(autoSelected == scaleLeft || autoSelected == scaleRight){
-						backwards = true;
-					}
-					else{ backwards = false; }
+					backwards = true;
 				}
 				if(autoStage == 1){
 					turning = true; driving = false;
@@ -408,7 +540,7 @@ private:
 				if((autoSelected == scaleLeft || autoSelected == scaleRight)&&crossing){
 					if(autoStage == 2){ //drive required distance
 						lift->Set(ControlMode::Position, 1500);
-						turning = false; driving = true; backwards = true;
+						turning = false; driving = true; backwards = false;
 						disSetpoint = farScaleDis1;
 						angleSetpoint = neutralPivot;
 					}
@@ -421,7 +553,7 @@ private:
 						turning = false; driving = true; backwards = true;
 						angleSetpoint = 0;
 						disSetpoint = farScaleDis2;
-						if(lDrive1->GetSelectedSensorPosition(0)/distToEnc > 65){
+						if(lDrive1->GetSelectedSensorPosition(0)/distToEnc > 60){
 							cubeGrabber->Set(DoubleSolenoid::kForward);
 							puncher->Set(DoubleSolenoid::kForward);
 						}
@@ -434,30 +566,52 @@ private:
 				}
 
 				//switch
-				if(autoSelected == switchRight || autoSelected == switchLeft){
+			//	if(autoSelected == switchRight || autoSelected == switchLeft){
 					if(autoStage == 2){ //drive necessary distance
 						arm->Set(ControlMode::MotionMagic, switchPos);
 						turning = false; driving = true; backwards = false;
 						angleSetpoint = neutralPivot;
-						if(crossing){disSetpoint = farSwitchDis1; }
+						if(crossing){disSetpoint = farSwitchDis1; } //THIS IS WRONG FIX THIS FIX THIS
 						else{ disSetpoint = nearSwitchDis; }
 
 					}
 					if(autoStage == 3){ //turn to face switch
 						turning = true; driving = false; backwards = false;
-						angleSetpoint = 180;
+						angleSetpoint = 0;
 						lastAngle = neutralPivot;
 					}
 					if(autoStage == 4){ //drive to switch
 						turning= false; driving = true; backwards = false;
 						disSetpoint = switchDis;
-						angleSetpoint = 180;
+						angleSetpoint = 0;
 					}
 					if(autoStage == 5){ //drop cube
 						turning = false; driving = false;
 						cubeGrabber->Set(DoubleSolenoid::kForward);
-						cubeGrabber->Set(DoubleSolenoid::kReverse);
+						puncher->Set(DoubleSolenoid::kForward);
+						lIntake->Set(ControlMode::PercentOutput,.5);
+						lift->Set(ControlMode::MotionMagic, freeLiftPos+150);
+						arm->Set(ControlMode::MotionMagic, 0);
+						if(arm->GetSelectedSensorPosition(0) < 10000){
+							puncher->Set(DoubleSolenoid::kReverse);
+							Wait(.5);
+							lift->Set(ControlMode::MotionMagic, 20);
+							Wait(.5);
+							cubeGrabber->Set(DoubleSolenoid::kReverse);
+							Wait(.2);
+							lift->Set(ControlMode::MotionMagic, freeLiftCubePos+150);
+							autoStage++;
+						}
 					}
+					if(autoStage == 6){
+						if(lift->GetSelectedSensorPosition(0) > freeLiftCubePos){
+							arm->Set(ControlMode::MotionMagic, switchPos);
+							if(arm->GetSelectedSensorPosition(0)>100000){
+								cubeGrabber->Set(DoubleSolenoid::kForward);
+								puncher->Set(DoubleSolenoid::kForward);
+							}
+						}
+				//	}
 				}
 
 			}
@@ -468,8 +622,8 @@ private:
 				tE = PIDify(pastVal, curVal, angleSetpoint, kGP, iE, kGD, true);
 				if(tE > .6) {	tE = .6;	}
 				else if (tE <= -.6){ tE = -.6;	}
-				lDrive1->Set(ControlMode::Velocity, -tE*800);
-				rDrive1->Set(ControlMode::Velocity, tE*800);
+				lDrive1->Set(ControlMode::Velocity, -tE*1500);
+				rDrive1->Set(ControlMode::Velocity, tE*1500);
 
 				double curError = angleSetpoint - curVal;
 				if(curError > 180){
@@ -482,7 +636,7 @@ private:
 				if(fabs(curError)>1.5){
 					autoTimer.Reset();
 				}
-				if(autoTimer.Get()>.5){
+				if(autoTimer.Get()>.125){
 					autoStage++;
 					lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
 					rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
@@ -494,16 +648,8 @@ private:
 
 			else if(driving){
 				if(backwards){ disSetpoint *= -1; }
-
-				distanceToZero = 10*(lDrive1->GetSelectedSensorVelocity(0)^2/(driveAccel*2));
-				if(fabs(distanceToZero) > fabs(disSetpoint - lDrive1->GetSelectedSensorPosition(0)/distToEnc) && velSetpoint < driveMaxVel){
-					if(!backwards){ velSetpoint += driveAccel * .02; }
-					else { velSetpoint -= driveAccel * .02; }
-				}
-				else if (fabs(distanceToZero < fabs(disSetpoint - lDrive1->GetSelectedSensorPosition(0)/distToEnc))){
-					if(!backwards){ velSetpoint -= driveAccel * .02; }
-					else { velSetpoint += driveAccel * .02; }
-				}
+				float vel = lDrive1->GetSelectedSensorVelocity(0);
+				distanceToZero = fabs(vel)/driveAccel*(10*vel/2)/distToEnc*1.5;
 
 				double curError = angleSetpoint - ahrs->GetYaw();
 				if(curError > 180){
@@ -512,20 +658,57 @@ private:
 				else if(curError < -180){
 					curError = curError+360;
 				}
-				if(!backwards){
-					lDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
-					rDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+
+				if(disSetpoint > lDrive1->GetSelectedSensorPosition(0)/distToEnc){
+					if(velSetpoint < 0){
+						velSetpoint = 0;
+					}
+					if(distanceToZero > (disSetpoint - lDrive1->GetSelectedSensorPosition(0)/distToEnc)){
+						velSetpoint -= driveAccel *.03;
+						lDrive1->Set(ControlMode::Velocity, (velSetpoint-70)*(1+curError * .1));
+						rDrive1->Set(ControlMode::Velocity, (velSetpoint-70)*(1-curError * .1));
+					}
+					else if(velSetpoint < driveMaxVel){
+						velSetpoint += driveAccel*.02;
+						lDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+						rDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+					}
+					else{
+						lDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+						rDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+					}
+					SmartDashboard::PutBoolean("Forward", true);
+
 				}
 				else{
-					lDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
-					rDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+					if(velSetpoint > 0){ velSetpoint = 0; }
+					if(distanceToZero < (disSetpoint - lDrive1->GetSelectedSensorPosition(0)/distToEnc)){
+						velSetpoint += driveAccel *.03;
+						lDrive1->Set(ControlMode::Velocity, (velSetpoint+70)*(1-curError * .1));
+						rDrive1->Set(ControlMode::Velocity, (velSetpoint+70)*(1+curError * .1));
+					}
+					else if(velSetpoint > -driveMaxVel){
+						velSetpoint -= driveAccel*.02;
+						lDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+						rDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+					}
+					else{
+						lDrive1->Set(ControlMode::Velocity, velSetpoint*(1-curError * .1));
+						rDrive1->Set(ControlMode::Velocity, velSetpoint*(1+curError * .1));
+					}
+
+					SmartDashboard::PutBoolean("Forward", false);
 				}
 /*
 				rDrive1->Set(ControlMode::MotionMagic, disSetpoint*distToEnc);
 				lDrive1->Set(ControlMode::MotionMagic, disSetpoint*distToEnc);
 */
-				if(abs(lDrive1->GetSelectedSensorPosition(0) - disSetpoint*distToEnc) < 5){
+				if(velSetpoint > 20 || abs(lDrive1->GetSelectedSensorPosition(0) - disSetpoint*distToEnc) > 150){
+					autoTimer.Reset();
+				}
+				if(abs(lDrive1->GetSelectedSensorPosition(0) - disSetpoint*distToEnc) < 10 || autoTimer.Get() > .5){
 					autoStage ++;
+					velSetpoint = 0;
 					lDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
 					rDrive1->SetSelectedSensorPosition(0,0,kTimeoutMs);
 		//			lDrive1->ConfigMotionAcceleration(800, kTimeoutMs);
@@ -545,6 +728,7 @@ private:
 			SmartDashboard::PutNumber("Ldist", lDrive1->GetSelectedSensorPosition(0));
 			SmartDashboard::PutNumber("Angle", ahrs->GetYaw());
 			SmartDashboard::PutNumber("Arm", arm->GetSelectedSensorPosition(0));
+			SmartDashboard::PutNumber("Lift", lift->GetSelectedSensorPosition(0));
 			SmartDashboard::PutNumber("tE", tE);
 		}
 	}
@@ -559,9 +743,9 @@ private:
 		kVD=prefs->GetDouble("kVD", kVD);
 
 		climbing = false;
-		arm->SetSelectedSensorPosition(0,0,kTimeoutMs);
-		if(!practiceRobot){	lift->SetSelectedSensorPosition(300,0,kTimeoutMs); }
-		else { lift->SetSelectedSensorPosition(300 * liftScale,0,kTimeoutMs); }
+		//arm->SetSelectedSensorPosition(0,0,kTimeoutMs);
+		//if(!practiceRobot){	lift->SetSelectedSensorPosition(300,0,kTimeoutMs); }
+		//else { lift->SetSelectedSensorPosition(300 * liftScale,0,kTimeoutMs); }
 
 		arm->Config_kF(0,.0361, kTimeoutMs);  //.0361, .1, 0, 0
 		arm->Config_kP(0, .1, kTimeoutMs);
@@ -570,14 +754,15 @@ private:
 		arm->ConfigMotionCruiseVelocity(20000, kTimeoutMs); //20000
 		arm->ConfigMotionAcceleration(40000, kTimeoutMs); //40000
 
-		if(!practiceRobot){
+//		if(!practiceRobot){
 			lift->Config_kF(0,1.13,kTimeoutMs);
 			lift->Config_kP(0,4,kTimeoutMs);
 			lift->Config_kI(0,kLI,kTimeoutMs);
 			lift->Config_kD(0,kLD,kTimeoutMs);
 			lift->ConfigMotionCruiseVelocity(150, kTimeoutMs);
 			lift->ConfigMotionAcceleration(1000, kTimeoutMs);
-		}
+		//	lift->SetSelectedSensorPosition(740,0,kTimeoutMs);
+/*		}
 		else{
 			lift->Config_kF(0,1.13/liftScale,kTimeoutMs);
 			lift->Config_kP(0,4/liftScale,kTimeoutMs);
@@ -585,7 +770,7 @@ private:
 			lift->Config_kD(0,kLD,kTimeoutMs);
 			lift->ConfigMotionCruiseVelocity(150*liftScale, kTimeoutMs);
 			lift->ConfigMotionAcceleration(1000*liftScale, kTimeoutMs);
-		}
+		}*/
 	//	arm->Config_IntegralZone(0,kAIZ, kTimeoutMs);
 
 		objective = 0; trigger = true;
@@ -606,6 +791,9 @@ private:
 			if(dr->GetRawButton(6)&&!dr->GetRawButton(5)){
 				PTO->Set(DoubleSolenoid::kReverse);
 				PTOBool = true;
+			}
+			if(dr->GetRawButton(1)){
+				climberBrake->Set(DoubleSolenoid::kReverse);
 			}
 		}
 		else { climberBrake->Set(DoubleSolenoid::kReverse); }
@@ -634,10 +822,10 @@ private:
 		else if(op->GetPOV() == 0){ objective = 1; trigger = true; }
 		else if(op->GetPOV() == 90){ objective = 3; trigger = true; }
 
-		if(!practiceRobot){
+	//	if(!practiceRobot){
 			liftPos = lift->GetSelectedSensorPosition(0);
-		}
-		else{ liftPos = lift->GetSelectedSensorPosition(0)/liftScale; }
+	//	}
+	//	else{ liftPos = lift->GetSelectedSensorPosition(0)/liftScale; }
 
 		armPos = arm->GetSelectedSensorPosition(0);
 		if(trigger){
@@ -688,7 +876,6 @@ private:
 			setLiftPos -= adjust(op->GetRawAxis(5)) * 30; //if the thing is done moving autonomously, let operator control
 			setArmPos -= adjust(op->GetRawAxis(1)) * 3000;
 		}
-		if(setLiftPos < 0) { setLiftPos = 0; } //put limits on what the lift can be set to
 		else if(setLiftPos > 2700){ setLiftPos = 2700; }
 	//	if(setArmPos < 0) { setArmPos = 0; } //put limits on what the arm can be set to
 		if(setArmPos > 320000){ setArmPos = 320000; }
@@ -698,7 +885,7 @@ private:
 		if(adjust(op->GetRawAxis(3)) > 0){
 			cubeGrabber->Set(DoubleSolenoid::kForward);
 			if(objective == 0){
-
+				setLiftPos = 300;
 				lIntake->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(3))); grab = true;
 			}
 			else if(objective == 2){
@@ -714,6 +901,7 @@ private:
 			cubeGrabber->Set(DoubleSolenoid::kReverse);
 			SmartDashboard::PutBoolean("Grab", true);
 			lIntake->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(2)));
+			setLiftPos = 0;
 		}
 		else if(op->GetRawButton(5) && objective == 1){
 			puncher->Set(DoubleSolenoid::kForward); cubeGrabber->Set(DoubleSolenoid::kForward);
@@ -724,7 +912,7 @@ private:
 		else{
 			puncher->Set(DoubleSolenoid::kReverse);
 			if(grab){
-				setLiftPos = 30;
+				setLiftPos = 0;
 				if(liftPos < 40){
 				//	cubeGrabber->Set(DoubleSolenoid::kForward);
 					grab = false;
@@ -760,12 +948,21 @@ private:
 //		else if(objective == 2){ setArmPos = switchPos; }
 //		else { setArmPos = 0; }
 
+		if(!bottomSwitch->Get() && liftPos < 1000){
+			lift->SetSelectedSensorPosition(0,0,kTimeoutMs);
+			if(setLiftPos < 0){ setLiftPos = 0; }
+		}
+		if(op->GetRawButton(1)){
+			arm->SetSelectedSensorPosition(0,0,kTimeoutMs);
+			setArmPos = 0;
+		}
+
 		arm->Set(ControlMode::MotionMagic,setArmPos);
 //		arm->Set(ControlMode::PercentOutput, adjust(op->GetRawAxis(1)));
-		if(!practiceRobot){
+	//	if(!practiceRobot){
 			lift->Set(ControlMode::MotionMagic,setLiftPos);
-		}
-		else { lift->Set(ControlMode::MotionMagic,setLiftPos*liftScale); }
+	//	}
+	//	else { lift->Set(ControlMode::MotionMagic,setLiftPos*liftScale); }
 
 
 //		SmartDashboard::PutNumber("LPot", lPot->GetVoltage());
@@ -779,7 +976,8 @@ private:
 		SmartDashboard::PutNumber("arm current", arm->GetOutputCurrent());
 		SmartDashboard::PutNumber("Lift", liftPos);
 		SmartDashboard::PutNumber("Objective", objective);
-		SmartDashboard::PutNumber("Switch", bottomSwitch->GetVoltage());
+		bool test = armSwitch->Get();
+		SmartDashboard::PutBoolean("Switch", test);
 	}
 };
 
